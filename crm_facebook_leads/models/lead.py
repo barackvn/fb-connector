@@ -145,31 +145,48 @@ class CrmLead(models.Model):
         if not lead.get('ad_id'):
             return ad_obj
         fb_ad = ad_obj.search([('facebook_ad_id', '=', lead['ad_id'])], limit=1)
-        if not fb_ad:
-            return ad_obj.create({'facebook_ad_id': lead['ad_id'], 'name': lead['ad_name'], }).id
-
-        return fb_ad.id
+        return (
+            fb_ad.id
+            if fb_ad
+            else ad_obj.create(
+                {
+                    'facebook_ad_id': lead['ad_id'],
+                    'name': lead['ad_name'],
+                }
+            ).id
+        )
 
     def get_adset(self, lead):
         ad_obj = self.env['utm.adset']
         if not lead.get('adset_id'):
             return ad_obj
         fb_adset = ad_obj.search([('facebook_adset_id', '=', lead['adset_id'])], limit=1)
-        if not fb_adset:
-            return ad_obj.create({'facebook_adset_id': lead['adset_id'], 'name': lead['adset_name'], }).id
-
-        return fb_adset.id
+        return (
+            fb_adset.id
+            if fb_adset
+            else ad_obj.create(
+                {
+                    'facebook_adset_id': lead['adset_id'],
+                    'name': lead['adset_name'],
+                }
+            ).id
+        )
 
     def get_campaign(self, lead):
         campaign_obj = self.env['utm.campaign']
         if not lead.get('campaign_id'):
             return campaign_obj
         fb_camp = campaign_obj.search([('facebook_campaign_id', '=', lead['campaign_id'])], limit=1)
-        if not fb_camp:
-            return campaign_obj.create({
-                'facebook_campaign_id': lead['campaign_id'], 'name': lead['campaign_name'], }).id
-
-        return fb_camp.id
+        return (
+            fb_camp.id
+            if fb_camp
+            else campaign_obj.create(
+                {
+                    'facebook_campaign_id': lead['campaign_id'],
+                    'name': lead['campaign_name'],
+                }
+            ).id
+        )
 
     def prepare_lead_creation(self, lead, form):
         vals, notes = self.get_fields_from_data(lead, form)
@@ -203,7 +220,7 @@ class CrmLead(models.Model):
 
     def get_opportunity_name(self, vals, lead, form):
         if not vals.get('name'):
-            vals['name'] = '%s - %s' % (form.name, lead['id'])
+            vals['name'] = f"{form.name} - {lead['id']}"
         return vals['name']
 
     def get_fields_from_data(self, lead, form):
@@ -215,36 +232,35 @@ class CrmLead(models.Model):
                 unmapped_fields.append((name, value))
                 continue
             odoo_field = form.mappings.filtered(lambda m: m.facebook_field == name).odoo_field
-            notes.append('%s: %s' % (odoo_field.field_description, value))
+            notes.append(f'{odoo_field.field_description}: {value}')
             if odoo_field.ttype == 'many2one':
                 related_value = self.env[odoo_field.relation].search([('display_name', '=', value)])
-                vals.update({odoo_field.name: related_value and related_value.id})
+                vals[odoo_field.name] = related_value and related_value.id
             elif odoo_field.ttype in ('float', 'monetary'):
-                vals.update({odoo_field.name: float(value)})
+                vals[odoo_field.name] = float(value)
             elif odoo_field.ttype == 'integer':
-                vals.update({odoo_field.name: int(value)})
-            # TODO: separate date & datetime into two different conditionals
+                vals[odoo_field.name] = int(value)
             elif odoo_field.ttype in ('date', 'datetime'):
-                vals.update({odoo_field.name: value.split('+')[0].replace('T', ' ')})
+                vals[odoo_field.name] = value.split('+')[0].replace('T', ' ')
             elif odoo_field.ttype == 'selection':
-                vals.update({odoo_field.name: value})
+                vals[odoo_field.name] = value
             elif odoo_field.ttype == 'boolean':
-                vals.update({odoo_field.name: value == 'true' if value else False})
+                vals[odoo_field.name] = value == 'true' if value else False
             else:
-                vals.update({odoo_field.name: value})
+                vals[odoo_field.name] = value
 
         # NOTE: Doing this to put unmapped fields at the end of the description
-        for name, value in unmapped_fields:
-            notes.append('%s: %s' % (name, value))
-
+        notes.extend(f'{name}: {value}' for name, value in unmapped_fields)
         return vals, notes
 
     def process_lead_field_data(self, lead):
         field_data = lead.pop('field_data')
         lead_data = dict(lead)
-        lead_data.update([(l['name'], l['values'][0])
-                          for l in field_data
-                          if l.get('name') and l.get('values')])
+        lead_data |= [
+            (l['name'], l['values'][0])
+            for l in field_data
+            if l.get('name') and l.get('values')
+        ]
         return lead_data
 
     def lead_processing(self, response, form):
